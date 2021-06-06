@@ -8,7 +8,7 @@ def DiffAugment(x, types=[]):
     for p in types:
         for f in AUGMENT_FNS[p]:
             x = f(x)
-    return x.contiguous()
+    return x.contiguous(memory_format = torch.contiguous_format)
 
 
 # """
@@ -46,7 +46,7 @@ def rand_translation(x, ratio=0.125):
     grid_x = torch.clamp(grid_x + translation_x + 1, 0, x.size(2) + 1)
     grid_y = torch.clamp(grid_y + translation_y + 1, 0, x.size(3) + 1)
     x_pad = F.pad(x, [1, 1, 1, 1, 0, 0, 0, 0])
-    x = x_pad.permute(0, 2, 3, 1).contiguous()[grid_batch, grid_x, grid_y].permute(0, 3, 1, 2)
+    x = x_pad.permute(0, 2, 3, 1).contiguous()[grid_batch, grid_x, grid_y].permute(0, 3, 1, 2).contiguous(memory_format = torch.contiguous_format)
     return x
 
 def rand_offset(x, ratio=1, ratio_h=1, ratio_v=1):
