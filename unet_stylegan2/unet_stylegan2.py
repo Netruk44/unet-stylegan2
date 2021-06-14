@@ -1036,7 +1036,7 @@ class Trainer():
 
         self.steps = name * self.save_every
 
-        load_data = torch.load(self.model_name(name))
+        load_data = torch.load(self.model_name(name), map_location=torch.device('cpu'))
 
         self.GAN.load_state_dict(load_data['GAN'])
 
