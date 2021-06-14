@@ -35,7 +35,6 @@ except:
 
 from unet_stylegan2.diff_augment import DiffAugment
 
-assert torch.cuda.is_available(), 'You need to have an Nvidia GPU with CUDA installed.'
 
 num_cores = multiprocessing.cpu_count()
 
@@ -129,7 +128,7 @@ def loss_backwards(fp16, loss, optimizer, **kwargs):
 def gradient_penalty(images, outputs, weight = 10):
     batch_size = images.shape[0]
     gradients = torch_grad(outputs=outputs, inputs=images,
-                           grad_outputs=list(map(lambda t: torch.ones(t.size()).cuda(), outputs)),
+                           grad_outputs=list(map(lambda t: torch.ones(t.size()), outputs)),
                            create_graph=True, retain_graph=True, only_inputs=True)[0]
 
     gradients = gradients.reshape(batch_size, -1)
@@ -137,17 +136,17 @@ def gradient_penalty(images, outputs, weight = 10):
 
 def calc_pl_lengths(styles, images):
     num_pixels = images.shape[2] * images.shape[3]
-    pl_noise = torch.randn(images.shape).cuda() / math.sqrt(num_pixels)
+    pl_noise = torch.randn(images.shape) / math.sqrt(num_pixels)
     outputs = (images * pl_noise).sum()
 
     pl_grads = torch_grad(outputs=outputs, inputs=styles,
-                          grad_outputs=torch.ones(outputs.shape).cuda(),
+                          grad_outputs=torch.ones(outputs.shape),
                           create_graph=True, retain_graph=True, only_inputs=True)[0]
 
     return (pl_grads ** 2).sum(dim=2).mean(dim=1).sqrt()
 
 def noise(n, latent_dim):
-    return torch.randn(n, latent_dim).cuda()
+    return torch.randn(n, latent_dim)
 
 def noise_list(n, layers, latent_dim):
     return [(noise(n, latent_dim), layers)]
@@ -160,7 +159,7 @@ def latent_to_w(style_vectorizer, latent_descr):
     return [(style_vectorizer(z), num_layers) for z, num_layers in latent_descr]
 
 def image_noise(n, im_size):
-    return torch.FloatTensor(n, im_size, im_size, 1).uniform_(0., 1.).cuda()
+    return torch.FloatTensor(n, im_size, im_size, 1).uniform_(0., 1.)
 
 def leaky_relu(p=0.2):
     return nn.LeakyReLU(p)
@@ -632,8 +631,6 @@ class StyleGAN2(nn.Module):
         self._init_weights()
         self.reset_parameter_averaging()
 
-        self.cuda()
-
         self.fp16 = fp16
         if fp16:
             (self.S, self.G, self.D, self.SE, self.GE), (self.G_opt, self.D_opt) = amp.initialize([self.S, self.G, self.D, self.SE, self.GE], [self.G_opt, self.D_opt], opt_level='O1')
@@ -747,8 +744,8 @@ class Trainer():
             self.init_GAN()
 
         self.GAN.train()
-        total_disc_loss = torch.tensor(0.).cuda()
-        total_gen_loss = torch.tensor(0.).cuda()
+        total_disc_loss = torch.tensor(0.)
+        total_gen_loss = torch.tensor(0.)
 
         batch_size = self.batch_size
 
@@ -783,7 +780,7 @@ class Trainer():
             generated_images = self.GAN.G(w_styles, noise).clone().detach()
             (fake_enc_out, fake_dec_out), fake_aug_images = self.GAN.D_aug(generated_images, detach = True, prob = aug_prob)
 
-            real_images = next(self.loader).cuda()
+            real_images = next(self.loader)
             real_images.requires_grad_()
             (real_enc_out, real_dec_out), real_aug_images = self.GAN.D_aug(real_images, prob = aug_prob)
 
@@ -930,7 +927,7 @@ class Trainer():
             repeat_idx = [1] * a.dim()
             repeat_idx[dim] = n_tile
             a = a.repeat(*(repeat_idx))
-            order_index = torch.LongTensor(np.concatenate([init_dim * np.arange(n_tile) + i for i in range(init_dim)])).cuda()
+            order_index = torch.LongTensor(np.concatenate([init_dim * np.arange(n_tile) + i for i in range(init_dim)]))
             return torch.index_select(a, dim, order_index)
 
         nn = noise(num_rows, latent_dim)
@@ -956,7 +953,7 @@ class Trainer():
         w_space = []
         for tensor, num_layers in style:
             tmp = S(tensor)
-            av_torch = torch.from_numpy(self.av).cuda()
+            av_torch = torch.from_numpy(self.av)
             tmp = trunc_psi * (tmp - av_torch) + av_torch
             w_space.append((tmp, num_layers))
 
