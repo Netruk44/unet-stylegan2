@@ -126,5 +126,6 @@ AUGMENT_FNS = {
     'offset_v': [rand_offset_v],
     'translation': [rand_translation],
     'cutout': [rand_cutout],
-    'zoom': [rand_zoom]
+    'zoom': [partial(rand_zoom, scale=0.25)],
+    'lightzoom': [partial(rand_zoom, scale=0.65)
 }
