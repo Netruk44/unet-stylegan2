@@ -758,7 +758,7 @@ class Trainer():
 
         aug_prob   = self.aug_prob
 
-        apply_gradient_penalty = self.steps < 4000 or self.steps % 4 == 0
+        apply_gradient_penalty = True
         apply_path_penalty = self.apply_pl_reg and self.steps % 32 == 0
 
         dec_loss_coef = warmup(0, 1., 30000, self.steps)
