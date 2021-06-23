@@ -817,11 +817,7 @@ class Trainer():
                 disc_loss = disc_loss + cr_loss * dec_loss_coef
 
             if apply_gradient_penalty:
-                if random() < 0.5:
-                    gp = gradient_penalty(real_images, (real_enc_out,))
-                else:
-                    gp = gradient_penalty(real_images, (real_dec_out,)) * dec_loss_coef
-                gp = gp / 4.0
+                gp = ((gradient_penalty(real_images, (real_enc_out,))) + (gradient_penalty(real_images, (real_dec_out,)) * dec_loss_coef)) / 8.0
                 self.last_gp_loss = gp.clone().detach().item()
                 disc_loss = disc_loss + gp
 
