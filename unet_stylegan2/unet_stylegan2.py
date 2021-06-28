@@ -3,6 +3,7 @@ import sys
 import math
 import fire
 import json
+from collections import defaultdict
 from tqdm import tqdm
 from math import floor, log2
 from random import random
@@ -89,6 +90,31 @@ class Rezero(nn.Module):
         self.g = nn.Parameter(torch.zeros(1))
     def forward(self, x):
         return self.fn(x) * self.g
+
+
+# lookahead
+class Lookahead(torch.optim.Optimizer):
+    def __init__(self, optimizer, alpha=0.5):
+        self.optimizer = optimizer
+        self.alpha = alpha
+        self.param_groups = self.optimizer.param_groups
+        self.state = defaultdict(dict)
+
+    def lookahead_step(self):
+        for group in self.param_groups:
+            for fast in group["params"]:
+                param_state = self.state[fast]
+                if "slow_params" not in param_state:
+                    param_state["slow_params"] = torch.zeros_like(fast.data)
+                    param_state["slow_params"].copy_(fast.data)
+                slow = param_state["slow_params"]
+                # slow <- slow + alpha * (fast - slow)
+                slow += (fast.data - slow) * self.alpha
+                fast.data.copy_(slow)
+
+    def step(self, closure = None):
+        loss = self.optimizer.step(closure)
+        return loss
 
 # one layer of self-attention and feedforward, for images
 
@@ -606,7 +632,7 @@ class Discriminator(nn.Module):
         return enc_out.squeeze(), dec_out
 
 class StyleGAN2(nn.Module):
-    def __init__(self, image_size, latent_dim = 512, fmap_max = 512, style_depth = 8, network_capacity = 16, transparent = False, fp16 = False, steps = 1, lr = 1e-4, ttur_mult = 2, no_const = False, lr_mul = 0.1, aug_types = ['translation', 'cutout']):
+    def __init__(self, image_size, latent_dim = 512, fmap_max = 512, style_depth = 8, network_capacity = 16, transparent = False, fp16 = False, steps = 1, lr = 1e-4, ttur_mult = 2, no_const = False, lr_mul = 0.1, aug_types = ['translation', 'cutout'], lookahead_alpha=0.5):
         super().__init__()
         self.lr = lr
         self.steps = steps
@@ -628,6 +654,10 @@ class StyleGAN2(nn.Module):
         generator_params = list(self.G.parameters()) + list(self.S.parameters())
         self.G_opt = Adam(generator_params, lr = self.lr, betas=(0.5, 0.9))
         self.D_opt = Adam(self.D.parameters(), lr = self.lr * ttur_mult, betas=(0.5, 0.9))
+
+        # Wrap optimizers with the lookahead optimizer
+        self.G_opt = Lookahead(self.G_opt, alpha=lookahead_alpha)
+        self.D_opt = Lookahead(self.D_opt, alpha=lookahead_alpha)
 
         self._init_weights()
         self.reset_parameter_averaging()
@@ -666,7 +696,7 @@ class StyleGAN2(nn.Module):
         return x
 
 class Trainer():
-    def __init__(self, name, results_dir, models_dir, image_size, network_capacity, transparent = False, batch_size = 4, mixed_prob = 0.9, gradient_accumulate_every=1, lr = 2e-4, ttur_mult = 2, num_workers = None, save_every = 1000, trunc_psi = 0.6, fp16 = False, no_const = False, aug_prob = 0., dataset_aug_prob = 0., cr_weight = 0.2, apply_pl_reg = False, lr_mul = 0.1, *args, **kwargs):
+    def __init__(self, name, results_dir, models_dir, image_size, network_capacity, transparent = False, batch_size = 4, mixed_prob = 0.9, gradient_accumulate_every=1, lr = 2e-4, ttur_mult = 2, num_workers = None, save_every = 1000, trunc_psi = 0.6, fp16 = False, no_const = False, aug_prob = 0., dataset_aug_prob = 0., cr_weight = 0.2, apply_pl_reg = False, lr_mul = 0.1, lookahead_alpha=0.5, lookahead_k = 5, beta_ema=0.9999, *args, **kwargs):
         self.GAN_params = [args, kwargs]
         self.GAN = None
 
@@ -716,6 +746,10 @@ class Trainer():
         self.dataset_aug_prob = dataset_aug_prob
 
         self.cr_weight = cr_weight
+
+        self.lookahead_k = lookahead_k
+        self.beta_ema = beta_ema
+        self.lookahead_alpha = lookahead_alpha
 
     def init_GAN(self):
         args, kwargs = self.GAN_params
@@ -872,11 +906,11 @@ class Trainer():
         if apply_path_penalty and not np.isnan(avg_pl_length):
             self.pl_mean = self.pl_length_ma.update_average(self.pl_mean, avg_pl_length)
 
-        if self.steps % 10 == 0 and self.steps > 20000:
+        if (self.steps + 1) % self.lookahead_k == 0:
+            # Joint lookahead update
+            self.GAN.D_opt.lookahead_step()
+            self.GAN.G_opt.lookahead_step()
             self.GAN.EMA()
-
-        if self.steps <= 25000 and self.steps % 1000 == 2:
-            self.GAN.reset_parameter_averaging()
 
         # save from NaN errors
 
